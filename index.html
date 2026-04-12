@@ -323,7 +323,7 @@
           </div>
           <div>
             <label for="fencePointCount">Starter Points</label>
-            <input id="fencePointCount" type="number" min="4" max="20" value="10" />
+            <input id="fencePointCount" type="number" min="4" max="20" value="4" />
           </div>
         </div>
 
@@ -335,6 +335,11 @@
         <div class="row">
           <button id="makeStarterFenceBtn" class="warn">Create Starter Fence</button>
           <button id="clearFenceBtn" class="secondary">Clear Fence</button>
+        </div>
+
+        <div class="row">
+          <button id="saveFenceBtn" class="primary">Save Fence</button>
+          <button id="clearSavedFenceBtn" class="ghost">Clear Saved</button>
         </div>
 
         <div class="row">
@@ -413,6 +418,7 @@
   const LAT_KEY = "latitude";
   const LON_KEY = "longitude";
   const BATTERY_KEY = "battery_level";
+  const FENCE_STORAGE_KEY = "geofence_saved_polygon_v1";
 
   let jwtToken = "";
   let routePoints = [];
@@ -955,11 +961,88 @@ if (!routePoints.length) {
     }
 
     if (!activePolygon) {
-      createStarterFence();
+      const loadedSavedFence = loadFenceLocally();
+      if (!loadedSavedFence) {
+        createStarterFence();
+      }
     }
 
     renderAll();
     return routePoints;
+  }
+
+  function getSavedFencePayload() {
+    try {
+      const raw = localStorage.getItem(FENCE_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.points) || parsed.points.length < 3) return null;
+      return parsed;
+    } catch (e) {
+      console.warn("Failed to read saved fence:", e);
+      return null;
+    }
+  }
+
+  function saveFenceLocally() {
+    try {
+      const poly = getFencePolygonLatLngs();
+      if (!poly || poly.length < 3) {
+        setStatus("No fence to save.", true);
+        return;
+      }
+
+      const payload = {
+        name: $("fenceName") ? $("fenceName").value || "Main Polygon Fence" : "Main Polygon Fence",
+        points: poly.map(p => [Number(p.lat), Number(p.lng)]),
+        savedAt: Date.now()
+      };
+
+      localStorage.setItem(FENCE_STORAGE_KEY, JSON.stringify(payload));
+      setStatus("Fence saved on this device.");
+    } catch (e) {
+      console.error(e);
+      setStatus("Failed to save fence locally.", true);
+    }
+  }
+
+  function loadFenceLocally() {
+    try {
+      const saved = getSavedFencePayload();
+      if (!saved || !saved.points || saved.points.length < 3) return false;
+
+      clearFence();
+      activePolygon = L.polygon(saved.points, {
+        color: "#f59e0b",
+        weight: 2,
+        fillColor: "#f59e0b",
+        fillOpacity: 0.15
+      });
+      activePolygon.bindPopup(saved.name || $("fenceName")?.value || "Fence");
+      fenceLayerGroup.addLayer(activePolygon);
+
+      if ($("fenceName") && saved.name) {
+        $("fenceName").value = saved.name;
+      }
+
+      enableEditing();
+      bindPolygonLiveUpdates();
+      updateFenceAnalysis();
+      return true;
+    } catch (e) {
+      console.warn("Failed to load saved fence:", e);
+      return false;
+    }
+  }
+
+  function clearSavedFenceLocally() {
+    try {
+      localStorage.removeItem(FENCE_STORAGE_KEY);
+      setStatus("Saved fence cleared from this device.");
+    } catch (e) {
+      console.warn("Failed to clear saved fence:", e);
+      setStatus("Could not clear saved fence.", true);
+    }
   }
 
   function clearFence() {
@@ -1225,6 +1308,12 @@ if (!routePoints.length) {
 
   $("makeStarterFenceBtn").onclick = () => {
     try { createStarterFence(); } catch (e) { setStatus(e.message || String(e), true); }
+  };
+  $("saveFenceBtn").onclick = () => {
+    saveFenceLocally();
+  };
+  $("clearSavedFenceBtn").onclick = () => {
+    clearSavedFenceLocally();
   };
   $("enableEditBtn").onclick = () => { enableEditing(); setStatus("Edit mode enabled."); };
   $("disableEditBtn").onclick = () => { disableEditing(); setStatus("Edit mode disabled."); };

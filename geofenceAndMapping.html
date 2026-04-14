@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Geofence</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+
+  <style>
+    :root {
+      --bg: #0b1220;
+      --card: #111827;
+      --muted: #94a3b8;
+      --text: #f8fafc;
+      --accent: #3b82f6;
+      --ok: #16a34a;
+      --warn: #d97706;
+      --bad: #dc2626;
+      --border: #334155;
+      --chip: #0f172a;
+      --shadow: 0 10px 30px rgba(0,0,0,.25);
+      --radius: 18px;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at top, rgba(59,130,246,.12), transparent 28%),
+        var(--bg);
+      color: var(--text);
+      font-family: Arial, sans-serif;
+      padding: 14px;
+    }
+    .app {
+      max-width: 560px;
+      margin: 0 auto;
+      display: grid;
+      gap: 12px;
+      padding-bottom: 24px;
+    }
+    .card {
+      background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(8px);
+    }
+    .heroTitle {
+      font-size: 24px;
+      font-weight: 800;
+      margin: 0;
+    }
+    .stack { display: grid; gap: 10px; }
+    .row { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+    @media (max-width: 420px) {
+      .row { grid-template-columns: 1fr; }
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      padding-left: 2px;
+    }
+    input, button {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: rgba(15,23,42,.92);
+      color: var(--text);
+      padding: 14px 14px;
+      font-size: 15px;
+      outline: none;
+    }
+    input:focus {
+      border-color: rgba(59,130,246,.8);
+      box-shadow: 0 0 0 3px rgba(59,130,246,.18);
+    }
+    button {
+      border: none;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    button.primary { background: var(--accent); }
+    button.secondary { background: #475569; }
+    button.warn { background: var(--warn); }
+    button.ghost {
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--border);
+    }
+    .topActions {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .chip {
+      background: var(--chip);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 9px 12px;
+      font-size: 12px;
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .chip.active {
+      background: var(--accent);
+      border-color: transparent;
+    }
+    .statWrap {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 4px;
+    }
+    .stat {
+      background: rgba(255,255,255,.02);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 6px 8px;
+      width: fit-content;
+      min-width: 120px;
+    }
+    .stat .k {
+      color: var(--muted);
+      font-size: 9px;
+      margin-bottom: 1px;
+    }
+    .stat .v {
+      font-size: 12px;
+      font-weight: 600;
+      word-break: break-word;
+    }
+    #map {
+      width: 100%;
+      height: 58vh;
+      min-height: 420px;
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: #0b1220;
+    }
+    details.cardSection {
+      padding: 0;
+      overflow: hidden;
+    }
+    details.cardSection > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 14px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    details.cardSection > summary::-webkit-details-marker { display: none; }
+    .sectionBody {
+      padding: 0 14px 14px 14px;
+      border-top: 1px solid rgba(255,255,255,.06);
+    }
+    .status {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      min-height: 18px;
+    }
+    .tableWrap {
+      max-height: 280px;
+      overflow: auto;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: rgba(15,23,42,.65);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th, td {
+      border-bottom: 1px solid rgba(255,255,255,.06);
+      padding: 10px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background: #0f172a;
+      color: #cbd5e1;
+      z-index: 1;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .inside { background: rgba(22,163,74,.15); color: #86efac; }
+    .outside { background: rgba(220,38,38,.15); color: #fca5a5; }
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(2,6,23,.72);
+      display: none;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 12px;
+      z-index: 5000;
+    }
+    .modal.show { display: flex; }
+    .sheet {
+      width: 100%;
+      max-width: 560px;
+      background: #111827;
+      border: 1px solid var(--border);
+      border-radius: 22px 22px 12px 12px;
+      box-shadow: 0 20px 40px rgba(0,0,0,.4);
+      padding: 16px;
+    }
+    .sheetHandle {
+      width: 46px;
+      height: 5px;
+      border-radius: 999px;
+      background: rgba(148,163,184,.5);
+      margin: 0 auto 14px auto;
+    }
+    .sheetTitle {
+      font-size: 18px;
+      font-weight: 800;
+      margin-bottom: 4px;
+    }
+    .sheetSub {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 14px;
+    }
+    .sheetActions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .leaflet-container {
+      background: #0b1220 !important;
+      touch-action: none;
+    }
+    #map, .leaflet-container, .leaflet-pane, .leaflet-control-container {
+      pointer-events: auto;
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <div id="statDeviceName" style="display:none;">Collar tag 6bab</div>
+  <div class="card">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+      <h1 class="heroTitle" style="margin:0;">Geofence</h1>
+      <div id="headerDeviceName" style="font-size:18px; font-weight:800;">Collar tag 6bab</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="stack">
+      <div style="display:none;"></div>
+
+      <div class="topActions">
+        <button id="loginBtn" class="primary" style="display:none;">Login</button>
+      </div>
+
+      <div class="chips">
+        <button id="openDateSheetBtn" class="chip active" type="button">Filter</button>
+      </div>
+
+      <div id="status" class="status">Ready.</div>
+    </div>
+  </div>
+
+
+  <div class="card" style="padding:10px;">
+    <div id="map"></div>
+  </div>
+
+  <details class="card cardSection">
+    <summary>
+      <span>Fence Tools</span>
+      <span style="color:var(--muted); font-size:12px;">open</span>
+    </summary>
+    <div class="sectionBody">
+      <div class="stack">
+        <div class="row">
+          <div>
+            <label for="fenceName">Fence Name</label>
+            <input id="fenceName" value="Main Polygon Fence" />
+          </div>
+          <div>
+            <label for="fencePointCount">Starter Points</label>
+            <input id="fencePointCount" type="number" min="4" max="20" value="10" />
+          </div>
+        </div>
+
+        <div>
+          <label for="fenceSizeMeters">Starter Size (meters)</label>
+          <input id="fenceSizeMeters" type="number" min="10" value="100" />
+        </div>
+
+        <div class="row">
+          <button id="makeStarterFenceBtn" class="warn">Create Starter Fence</button>
+          <button id="clearFenceBtn" class="secondary">Clear Fence</button>
+        </div>
+
+        <div class="row">
+          <button id="enableEditBtn" class="secondary">Enable Edit</button>
+          <button id="disableEditBtn" class="secondary">Disable Edit</button>
+        </div>
+
+        <button id="exportCsvBtn" class="ghost">Export CSV</button>
+      </div>
+    </div>
+  </details>
+
+  <details class="card cardSection">
+    <summary>
+      <span>Filtered Points</span>
+      <span style="color:var(--muted); font-size:12px;">open</span>
+    </summary>
+    <div class="sectionBody">
+      <div class="tableWrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Time</th>
+              <th>Latitude</th>
+              <th>Longitude</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="pointsBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </details>
+</div>
+
+<div id="dateSheet" class="modal">
+  <div class="sheet">
+    <div class="sheetHandle"></div>
+    <div class="sheetTitle">Date Filter</div>
+    <div class="sheetSub">Last 24 hours is selected by default. You can change it here.</div>
+
+    <div class="stack">
+      <div class="chips">
+        <button id="last24hBtn" class="chip active" type="button">Filter</button>
+        <button id="last7dBtn" class="chip" type="button">Last 7 Days</button>
+        <button id="clearBtn" class="chip" type="button">Clear</button>
+      </div>
+
+      <div>
+        <label for="startTime">Start Date/Time</label>
+        <input id="startTime" type="datetime-local" />
+      </div>
+      <div>
+        <label for="endTime">End Date/Time</label>
+        <input id="endTime" type="datetime-local" />
+      </div>
+    </div>
+
+    <div class="sheetActions">
+      <button id="applyDateSheetBtn" class="primary">Apply</button>
+      <button id="closeDateSheetBtn" class="secondary">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+<script>
+  const SERVER = "https://thingsboard.intarget.mobi";
+  const USERNAME = "dman@ioti.mobi";
+  const AUTO_PASSWORD = "DMAN@IOTI";
+  const ENTITY_VIEW_ID = "87ba4c90-383d-11f1-9fcf-f388f094fc17";
+  let DEVICE_NAME = "Collar tag 6bab";
+  const LAT_KEY = "latitude";
+  const LON_KEY = "longitude";
+
+  let jwtToken = "";
+  let routePoints = [];
+  let map = null;
+  let markerLayer = null;
+  let routeLine = null;
+  let fenceLayerGroup = null;
+  let activePolygon = null;
+  let tileErrorCount = 0;
+  let fenceLiveTimer = null;
+  let currentFilter = "24h";
+  let hasAutoFittedMap = false;
+
+  function $(id) { return document.getElementById(id); }
+
+  function setStatus(msg, isError = false) {
+    const el = $("status");
+    el.style.color = isError ? "#fca5a5" : "#94a3b8";
+    el.textContent = msg;
+  }
+
+  function toLocalDateTime(d) {
+    const pad = n => String(n).padStart(2, "0");
+    return [
+      d.getFullYear(), "-", pad(d.getMonth() + 1), "-", pad(d.getDate()),
+      "T", pad(d.getHours()), ":", pad(d.getMinutes())
+    ].join("");
+  }
+
+  function parseDateTimeInput(value) {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.getTime();
+  }
+
+  function isUuid(value) {
+    return /^[0-9a-fA-F]{8}\-[0-9a-fA-F]{4}\-[1-5][0-9a-fA-F]{3}\-[89abAB][0-9a-fA-F]{3}\-[0-9a-fA-F]{12}$/.test(String(value || "").trim());
+  }
+
+  async function resolveTelemetryTarget() {
+    if (!isUuid(ENTITY_VIEW_ID)) throw new Error("Entity view ID is not a valid UUID.");
+
+    return {
+      entityType: "ENTITY_VIEW",
+      entityId: ENTITY_VIEW_ID
+    };
+  }
+
+  async function resolveEntityView() {
+    if (!isUuid(ENTITY_VIEW_ID)) throw new Error("Entity view ID is not a valid UUID.");
+    return api("/api/entityView/" + encodeURIComponent(ENTITY_VIEW_ID));
+  }
+
+  function setLast24Hours() {
+    const now = new Date();
+    const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    $("startTime").value = toLocalDateTime(start);
+    $("endTime").value = toLocalDateTime(now);
+    currentFilter = "24h";
+    syncFilterButtons();
+  }
+
+  function setLast7Days() {
+    const now = new Date();
+    const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    $("startTime").value = toLocalDateTime(start);
+    $("endTime").value = toLocalDateTime(now);
+    currentFilter = "7d";
+    syncFilterButtons();
+  }
+
+  function syncFilterButtons() {
+    const is24 = currentFilter === "24h";
+    $("last24hBtn").classList.toggle("active", is24);
+    $("last7dBtn").classList.toggle("active", !is24);
+    $("openDateSheetBtn").textContent = is24 ? "Filter" : "Custom Filter";
+    $("openDateSheetBtn").classList.add("active");
+  }
+
+  function openDateSheet() {
+    $("dateSheet").classList.add("show");
+  }
+
+  function closeDateSheet() {
+    $("dateSheet").classList.remove("show");
+  }
+
+  function refreshMapLayout() {
+    try {
+      if (!map) return;
+      map.invalidateSize(true);
+
+      if (routePoints && routePoints.length) {
+        let bounds = L.latLngBounds(routePoints.map(p => [p.lat, p.lon]));
+        const poly = getFencePolygonLatLngs();
+        if (poly && poly.length) poly.forEach(ll => bounds.extend(ll));
+        if (bounds.isValid()) {
+          map.fitBounds(bounds.pad(0.12));
+        }
+      } else {
+        map.setView([-26.2041, 28.0473], 11);
+      }
+    } catch (e) {
+      console.warn("refreshMapLayout failed:", e);
+    }
+  }
+
+  function fitMapToDataOnce(force = false) {
+    try {
+      if (!map) return;
+      if (hasAutoFittedMap && !force) return;
+
+      if (routePoints && routePoints.length) {
+        let bounds = L.latLngBounds(routePoints.map(p => [p.lat, p.lon]));
+        const poly = getFencePolygonLatLngs();
+        if (poly && poly.length) poly.forEach(ll => bounds.extend(ll));
+        if (bounds.isValid()) {
+          map.fitBounds(bounds.pad(0.18));
+          hasAutoFittedMap = true;
+          return;
+        }
+      }
+
+      map.setView([-26.2041, 28.0473], 11);
+      hasAutoFittedMap = true;
+    } catch (e) {
+      console.warn("fitMapToDataOnce failed:", e);
+    }
+  }
+
+  function refreshMapLayout() {
+    try {
+      if (!map) return;
+      map.invalidateSize(true);
+    } catch (e) {
+      console.warn("refreshMapLayout failed:", e);
+    }
+  }
+
+  function initMap() {
+    map = L.map("map", {
+      zoomControl: true,
+      preferCanvas: true,
+      dragging: true,
+      touchZoom: true,
+      scrollWheelZoom: true,
+      doubleClickZoom: true,
+      boxZoom: true,
+      keyboard: true,
+      tap: false,
+      minZoom: 2,
+      maxZoom: 19
+    }).setView([-26.2041, 28.0473], 11);
+
+    setTimeout(() => {
+      try {
+        map.invalidateSize(true);
+        map.dragging.enable();
+        map.touchZoom.enable();
+        map.scrollWheelZoom.enable();
+        map.doubleClickZoom.enable();
+        map.boxZoom.enable();
+        map.keyboard.enable();
+      } catch (e) {
+        console.warn("Map interaction enable failed:", e);
+      }
+    }, 250);
+
+    const tiles = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+      minZoom: 2,
+      maxZoom: 19,
+      subdomains: "abcd",
+      attribution: '&copy; OpenStreetMap contributors, &copy; CARTO'
+    });
+
+    tiles.on("tileerror", () => {
+      tileErrorCount++;
+      if (tileErrorCount > 4) {
+        setStatus("Some map tiles were blocked while loading. Leave it a moment and they often recover.", true);
+      }
+    });
+
+    tiles.addTo(map);
+
+    markerLayer = L.layerGroup().addTo(map);
+    routeLine = L.polyline([], { weight: 5, color: "#2563eb" }).addTo(map);
+    fenceLayerGroup = new L.FeatureGroup().addTo(map);
+
+    const drawControl = new L.Control.Draw({
+      position: "topleft",
+      draw: {
+        polyline: false,
+        circle: false,
+        circlemarker: false,
+        marker: false,
+        polygon: {
+          allowIntersection: false,
+          showArea: true
+        },
+        rectangle: true
+      },
+      edit: {
+        featureGroup: fenceLayerGroup,
+        remove: true
+      }
+    });
+    map.addControl(drawControl);
+
+    map.on(L.Draw.Event.CREATED, (e) => {
+      clearFence();
+      activePolygon = e.layer;
+      activePolygon.bindPopup($("fenceName").value || "Fence");
+      fenceLayerGroup.addLayer(activePolygon);
+      enableEditing();
+      bindPolygonLiveUpdates();
+      updateFenceAnalysis();
+      setStatus("Fence created.");
+    });
+
+    map.on(L.Draw.Event.EDITSTART, () => {
+      bindPolygonLiveUpdates();
+    });
+
+    map.on(L.Draw.Event.EDITED, () => {
+      bindPolygonLiveUpdates();
+      updateFenceAnalysis();
+      setStatus("Fence updated.");
+    });
+
+    map.on(L.Draw.Event.DELETED, () => {
+      activePolygon = null;
+      updateFenceAnalysis();
+      setStatus("Fence deleted.");
+    });
+  }
+
+  async function api(path, options = {}) {
+    const headers = Object.assign({}, options.headers || {});
+    if (jwtToken) headers["X-Authorization"] = "Bearer " + jwtToken;
+    const res = await fetch(SERVER + path, Object.assign({}, options, { headers }));
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error("API failed: " + res.status + " " + (text || res.statusText));
+    }
+    const ct = res.headers.get("content-type") || "";
+    return ct.includes("application/json") ? res.json() : res.text();
+  }
+
+  async function login() {
+    const password = AUTO_PASSWORD;
+    if (!password) throw new Error("Password is required.");
+const res = await fetch(SERVER + "/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: USERNAME, password })
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error("Login failed: " + res.status + " " + (text || res.statusText));
+    }
+
+    const data = await res.json();
+    jwtToken = data.token || "";
+    if (!jwtToken) throw new Error("No JWT token returned.");
+    return jwtToken;
+  }
+
+  async function fetchDeviceName() {
+    DEVICE_NAME = "Collar tag 6bab";
+    const hiddenName = $("statDeviceName");
+    const headerName = $("headerDeviceName");
+    if (hiddenName) hiddenName.textContent = DEVICE_NAME;
+    if (headerName) headerName.textContent = DEVICE_NAME;
+  }
+
+  async function fetchTimeseries() {
+    const startTs = parseDateTimeInput($("startTime").value);
+    const endTs = parseDateTimeInput($("endTime").value);
+
+    if (!startTs || !endTs) throw new Error("Start and end date/time are required.");
+    if (endTs <= startTs) throw new Error("End time must be after start time.");
+
+    const query = new URLSearchParams({
+      keys: LAT_KEY + "," + LON_KEY,
+      startTs: String(startTs),
+      endTs: String(endTs),
+      limit: "100000",
+      agg: "NONE",
+      orderBy: "ASC"
+    });
+
+    const target = await resolveTelemetryTarget();
+    let data;
+
+    try {
+      data = await api("/api/plugins/telemetry/" + encodeURIComponent(target.entityType) + "/" + encodeURIComponent(target.entityId) + "/values/timeseries?" + query.toString());
+    } catch (firstErr) {
+      try {
+        const entityView = await resolveEntityView();
+        const fallbackType = entityView && entityView.entityId && entityView.entityId.entityType;
+        const fallbackId = entityView && entityView.entityId && entityView.entityId.id;
+
+        if (!fallbackType || !fallbackId) throw firstErr;
+
+        data = await api("/api/plugins/telemetry/" + encodeURIComponent(fallbackType) + "/" + encodeURIComponent(fallbackId) + "/values/timeseries?" + query.toString());
+      } catch (fallbackErr) {
+        throw new Error("Telemetry fetch failed through the entity view and its linked entity. Check that this user can view latest telemetry for latitude and longitude in this entity view.");
+      }
+    }
+
+    const latArr = Array.isArray(data[LAT_KEY]) ? data[LAT_KEY] : [];
+    const lonArr = Array.isArray(data[LON_KEY]) ? data[LON_KEY] : [];
+
+    const lonByTs = new Map();
+    for (const item of lonArr) {
+      const ts = Number(item.ts);
+      const val = Number(item.value);
+      if (Number.isFinite(ts) && Number.isFinite(val)) lonByTs.set(ts, val);
+    }
+
+    const points = [];
+    for (const item of latArr) {
+      const ts = Number(item.ts);
+      const lat = Number(item.value);
+      const lon = lonByTs.get(ts);
+      if (Number.isFinite(ts) && Number.isFinite(lat) && Number.isFinite(lon)) {
+        points.push({ ts, lat, lon });
+      }
+    }
+
+    routePoints = points.sort((a, b) => a.ts - b.ts);
+    hasAutoFittedMap = false;
+if (!routePoints.length) {
+      renderAll();
+      throw new Error("No matching latitude/longitude points found for the selected range.");
+    }
+
+    if (!activePolygon) {
+      createStarterFence();
+    }
+
+    renderAll();
+    return routePoints;
+  }
+
+  function clearFence() {
+    if (fenceLayerGroup) fenceLayerGroup.clearLayers();
+    activePolygon = null;
+    if (fenceLiveTimer) {
+      clearInterval(fenceLiveTimer);
+      fenceLiveTimer = null;
+    }
+  }
+
+  function metersToLatDeg(meters) {
+    return meters / 111320;
+  }
+
+  function metersToLonDeg(meters, lat) {
+    const denom = 111320 * Math.cos(lat * Math.PI / 180);
+    return meters / (Math.abs(denom) < 1e-9 ? 1e-9 : denom);
+  }
+
+  function createStarterFence() {
+    if (!routePoints.length || !fenceLayerGroup) return;
+
+    const center = routePoints[0];
+    const count = Math.max(4, Math.min(20, Number($("fencePointCount").value) || 10));
+    const sizeMeters = Math.max(10, Number($("fenceSizeMeters").value) || 100);
+
+    const latRadius = metersToLatDeg(sizeMeters);
+    const lonRadius = metersToLonDeg(sizeMeters, center.lat);
+
+    const points = [];
+    for (let i = 0; i < count; i++) {
+      const angle = (Math.PI * 2 * i) / count;
+      const lat = center.lat + Math.sin(angle) * latRadius;
+      const lon = center.lon + Math.cos(angle) * lonRadius;
+      points.push([lat, lon]);
+    }
+
+    clearFence();
+    activePolygon = L.polygon(points, {
+      color: "#f59e0b",
+      weight: 2,
+      fillColor: "#f59e0b",
+      fillOpacity: 0.15
+    });
+    activePolygon.bindPopup($("fenceName").value || "Fence");
+    fenceLayerGroup.addLayer(activePolygon);
+    enableEditing();
+    bindPolygonLiveUpdates();
+    updateFenceAnalysis();
+  }
+
+  function pointInPolygon(lat, lon, polygonLatLngs) {
+    let inside = false;
+    for (let i = 0, j = polygonLatLngs.length - 1; i < polygonLatLngs.length; j = i++) {
+      const xi = polygonLatLngs[i].lng, yi = polygonLatLngs[i].lat;
+      const xj = polygonLatLngs[j].lng, yj = polygonLatLngs[j].lat;
+      const crosses = ((yi > lat) !== (yj > lat)) &&
+        (lon < (xj - xi) * (lat - yi) / ((yj - yi) || 1e-12) + xi);
+      if (crosses) inside = !inside;
+    }
+    return inside;
+  }
+
+  function getFencePolygonLatLngs() {
+    if (!activePolygon) return null;
+    const latlngs = activePolygon.getLatLngs();
+    if (!latlngs || !latlngs.length) return null;
+    return Array.isArray(latlngs[0]) ? latlngs[0] : latlngs;
+  }
+
+  function analyzePoints() {
+    const poly = getFencePolygonLatLngs();
+    return routePoints.map((p, idx) => {
+      let isInside = null;
+      if (poly && poly.length >= 3) {
+        isInside = pointInPolygon(p.lat, p.lon, poly);
+      }
+      return {
+        ...p,
+        index: idx + 1,
+        isInside
+      };
+    });
+  }
+
+  function renderMap(analyzed) {
+    if (!markerLayer || !routeLine || !map) return;
+
+    markerLayer.clearLayers();
+    routeLine.setLatLngs([]);
+
+    const latlngs = analyzed.map(p => [p.lat, p.lon]);
+    routeLine.setLatLngs(latlngs);
+
+    analyzed.forEach((p, idx) => {
+      const color = p.isInside === null ? "#3b82f6" : (p.isInside ? "#16a34a" : "#dc2626");
+      const marker = L.circleMarker([p.lat, p.lon], {
+        radius: idx === 0 || idx === analyzed.length - 1 ? 8 : 6,
+        color,
+        fillColor: color,
+        fillOpacity: 0.9,
+        weight: 1
+      }).bindPopup(
+        "<b>Point " + p.index + "</b><br>" +
+        new Date(p.ts).toLocaleString() + "<br>" +
+        "Lat: " + p.lat + "<br>" +
+        "Lon: " + p.lon + "<br>" +
+        "Status: " + (p.isInside === null ? "No fence" : (p.isInside ? "Inside" : "Outside"))
+      );
+      markerLayer.addLayer(marker);
+    });
+
+    if (latlngs.length && !hasAutoFittedMap) {
+      fitMapToDataOnce();
+    }
+  }
+
+  function renderTable(analyzed) {
+    const body = $("pointsBody");
+    body.innerHTML = "";
+
+    for (const p of analyzed) {
+      const tr = document.createElement("tr");
+      const time = new Date(p.ts).toLocaleString();
+      const badge = p.isInside === null
+        ? "-"
+        : `<span class="badge ${p.isInside ? "inside" : "outside"}">${p.isInside ? "Inside" : "Outside"}</span>`;
+
+      tr.innerHTML = `
+        <td>${p.index}</td>
+        <td>${time}</td>
+        <td>${p.lat}</td>
+        <td>${p.lon}</td>
+        <td>${badge}</td>
+      `;
+      body.appendChild(tr);
+    }
+  }
+
+  function renderAll() {
+    const analyzed = analyzePoints();
+    renderMap(analyzed);
+    renderTable(analyzed);
+    setTimeout(refreshMapLayout, 50);
+  }
+
+  function updateFenceAnalysis() {
+    renderAll();
+  }
+
+  function bindPolygonLiveUpdates() {
+    if (!activePolygon) return;
+    const liveUpdate = () => updateFenceAnalysis();
+    try { activePolygon.off("edit", liveUpdate); } catch (e) {}
+    activePolygon.on("edit", liveUpdate);
+  }
+
+  function enableEditing() {
+    if (activePolygon && activePolygon.editing && activePolygon.editing.enable) {
+      activePolygon.editing.enable();
+      bindPolygonLiveUpdates();
+      if (fenceLiveTimer) {
+        clearInterval(fenceLiveTimer);
+        fenceLiveTimer = null;
+      }
+      updateFenceAnalysis();
+    }
+  }
+
+  function disableEditing() {
+    if (activePolygon && activePolygon.editing && activePolygon.editing.disable) {
+      activePolygon.editing.disable();
+      if (fenceLiveTimer) {
+        clearInterval(fenceLiveTimer);
+        fenceLiveTimer = null;
+      }
+      updateFenceAnalysis();
+    }
+  }
+
+  function exportCsv() {
+    const analyzed = analyzePoints();
+    if (!analyzed.length) throw new Error("No data to export.");
+
+    const lines = [
+      ["index", "timestamp", "local_time", "latitude", "longitude", "status"].join(",")
+    ];
+
+    for (const p of analyzed) {
+      lines.push([
+        p.index,
+        p.ts,
+        '"' + new Date(p.ts).toLocaleString().replace(/"/g, '""') + '"',
+        p.lat,
+        p.lon,
+        p.isInside === null ? "" : (p.isInside ? "inside" : "outside")
+      ].join(","));
+    }
+
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "geofence_points.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function clearAll() {
+    routePoints = [];
+    hasAutoFittedMap = false;
+    clearFence();
+    $("pointsBody").innerHTML = "";
+    if (markerLayer) markerLayer.clearLayers();
+    if (routeLine) routeLine.setLatLngs([]);
+    setStatus("Cleared.");
+  }
+
+  $("loginBtn").onclick = async () => {
+    try {
+      setStatus("Logging in...");
+      await login();
+      await fetchDeviceName();
+      setStatus("Loading map data...");
+      await fetchTimeseries();
+      refreshMapLayout();
+      fitMapToDataOnce(true);
+      setStatus("Data loaded.");
+    } catch (e) {
+      console.error(e);
+      setStatus(e.message || String(e), true);
+    }
+  };
+
+  $("makeStarterFenceBtn").onclick = () => {
+    try { createStarterFence(); } catch (e) { setStatus(e.message || String(e), true); }
+  };
+  $("enableEditBtn").onclick = () => { enableEditing(); setStatus("Edit mode enabled."); };
+  $("disableEditBtn").onclick = () => { disableEditing(); setStatus("Edit mode disabled."); };
+  $("clearFenceBtn").onclick = () => { clearFence(); updateFenceAnalysis(); setStatus("Fence cleared."); };
+  $("exportCsvBtn").onclick = () => {
+    try { exportCsv(); setStatus("CSV exported."); } catch (e) { setStatus(e.message || String(e), true); }
+  };
+
+  $("openDateSheetBtn").onclick = openDateSheet;
+  $("closeDateSheetBtn").onclick = closeDateSheet;
+  $("applyDateSheetBtn").onclick = () => {
+    const s = parseDateTimeInput($("startTime").value);
+    const e = parseDateTimeInput($("endTime").value);
+    currentFilter = (s && e && (e - s) <= 24*60*60*1000 + 60000) ? "24h" : "custom";
+    syncFilterButtons();
+    closeDateSheet();
+    setStatus("Filter updated.");
+  };
+  $("dateSheet").onclick = (e) => {
+    if (e.target.id === "dateSheet") closeDateSheet();
+  };
+  $("last24hBtn").onclick = () => setLast24Hours();
+  $("last7dBtn").onclick = () => setLast7Days();
+  $("clearBtn").onclick = () => {
+    setLast24Hours();
+    setStatus("Reset to last 24 hours.");
+  };
+
+
+
+  // Important: set default filter BEFORE anything else happens
+  setLast24Hours();
+  initMap();
+  setTimeout(refreshMapLayout, 250);
+
+  // AUTO LOGIN
+  setTimeout(async () => {
+    try {
+      setStatus("Connecting...");
+      await login();
+      await fetchDeviceName();
+      setStatus("Loading map data...");
+      await fetchTimeseries();
+      refreshMapLayout();
+      fitMapToDataOnce(true);
+      setStatus("Data loaded.");
+    } catch (e) {
+      console.error(e);
+      setStatus(e.message || String(e), true);
+    }
+  }, 500);
+  const statNameEl = $("statDeviceName");
+  const headerNameEl = $("headerDeviceName");
+  if (statNameEl) statNameEl.textContent = DEVICE_NAME;
+  if (headerNameEl) headerNameEl.textContent = DEVICE_NAME;
+</script>
+</body>
+</html>

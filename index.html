@@ -261,6 +261,13 @@
       pointer-events: auto;
     }
   </style>
+
+<style>
+#testVoiceBtn, #streetViewBtn, #satelliteViewBtn {
+  display: none !important;
+}
+</style>
+
 </head>
 <body>
 <div class="app">
@@ -282,6 +289,9 @@
 
       <div class="chips">
         <button id="openDateSheetBtn" class="chip active" type="button">Filter</button>
+        <button id="testVoiceBtn" class="chip" type="button">Test Voice</button>
+        <button id="streetViewBtn" class="chip active" type="button">Street</button>
+        <button id="satelliteViewBtn" class="chip" type="button">Satellite</button>
       </div>
 
       <div id="status" class="status">Ready.</div>
@@ -307,7 +317,7 @@
           </div>
           <div>
             <label for="fencePointCount">Starter Points</label>
-            <input id="fencePointCount" type="number" min="4" max="20" value="10" />
+            <input id="fencePointCount" type="number" min="4" max="20" value="4" />
           </div>
         </div>
 
@@ -387,6 +397,7 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+<script src="https://unpkg.com/esri-leaflet@3.0.14/dist/esri-leaflet.js"></script>
 <script>
   const SERVER = "https://thingsboard.intarget.mobi";
   const USERNAME = "dman@ioti.mobi";
@@ -404,11 +415,113 @@
   let fenceLayerGroup = null;
   let activePolygon = null;
   let tileErrorCount = 0;
+  let streetLayer = null;
+  let satelliteLayer = null;
+  let currentBaseLayer = "street";
   let fenceLiveTimer = null;
   let currentFilter = "24h";
   let hasAutoFittedMap = false;
+  let lastAlertState = null;
+  let speechReady = false;
+  let voicesLoaded = false;
 
   function $(id) { return document.getElementById(id); }
+
+  function loadVoices() {
+    try {
+      const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+      voicesLoaded = Array.isArray(voices) && voices.length > 0;
+      return voices || [];
+    } catch (e) {
+      console.warn("Voice load failed:", e);
+      return [];
+    }
+  }
+
+  function unlockSpeech() {
+    if (!("speechSynthesis" in window)) return;
+    try {
+      speechReady = true;
+      loadVoices();
+      const warmup = new SpeechSynthesisUtterance(" ");
+      warmup.volume = 0;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(warmup);
+      setTimeout(() => {
+        try { window.speechSynthesis.cancel(); } catch (e) {}
+      }, 50);
+    } catch (e) {
+      console.warn("Speech warmup failed:", e);
+    }
+  }
+
+  function pickVoice() {
+    const voices = loadVoices();
+    if (!voices.length) return null;
+
+    const preferred = voices.find(v => {
+      const n = (v.name || "").toLowerCase();
+      return n.includes("david") || n.includes("mark") || n.includes("male");
+    }) || voices.find(v => {
+      const n = (v.name || "").toLowerCase();
+      const l = (v.lang || "").toLowerCase();
+      return l.startsWith("en-za") || l.startsWith("en-gb") || l.startsWith("en-us") || n.includes("english");
+    }) || voices[0];
+
+    return preferred || null;
+  }
+
+  function speakAlert(message) {
+    if (!("speechSynthesis" in window)) {
+      setStatus("Speech is not supported in this browser.", true);
+      return;
+    }
+
+    try {
+      speechReady = true;
+      const runSpeak = () => {
+        try {
+          const utterance = new SpeechSynthesisUtterance(message);
+          const voice = pickVoice();
+          if (voice) utterance.voice = voice;
+          utterance.lang = voice && voice.lang ? voice.lang : "en-US";
+          utterance.rate = 0.92;
+          utterance.pitch = 0.85;
+          utterance.volume = 1;
+
+          utterance.onstart = () => {
+            setStatus("Speaking alert...");
+          };
+          utterance.onerror = (ev) => {
+            console.warn("Speech utterance error:", ev);
+            setStatus("Voice alert failed in this browser.", true);
+          };
+
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(utterance);
+        } catch (e) {
+          console.warn("Speech alert failed:", e);
+          setStatus("Voice alert failed in this browser.", true);
+        }
+      };
+
+      const voices = loadVoices();
+      if (!voices.length) {
+        setTimeout(runSpeak, 300);
+        setTimeout(runSpeak, 900);
+      } else {
+        runSpeak();
+      }
+    } catch (e) {
+      console.warn("Speech alert failed:", e);
+      setStatus("Voice alert failed in this browser.", true);
+    }
+  }
+
+  function testVoiceNow() {
+    unlockSpeech();
+    speakAlert("Test message. The animal is outside the fence.");
+  }
 
   function setStatus(msg, isError = false) {
     const el = $("status");
@@ -534,6 +647,33 @@
     }
   }
 
+  function syncMapStyleButtons() {
+    const streetBtn = $("streetViewBtn");
+    const satelliteBtn = $("satelliteViewBtn");
+    if (streetBtn) streetBtn.classList.toggle("active", currentBaseLayer === "street");
+    if (satelliteBtn) satelliteBtn.classList.toggle("active", currentBaseLayer === "satellite");
+  }
+
+  function setBaseLayer(mode) {
+    try {
+      if (!map || !streetLayer || !satelliteLayer) return;
+
+      if (mode === "satellite") {
+        if (map.hasLayer(streetLayer)) map.removeLayer(streetLayer);
+        if (!map.hasLayer(satelliteLayer)) satelliteLayer.addTo(map);
+        currentBaseLayer = "satellite";
+      } else {
+        if (map.hasLayer(satelliteLayer)) map.removeLayer(satelliteLayer);
+        if (!map.hasLayer(streetLayer)) streetLayer.addTo(map);
+        currentBaseLayer = "street";
+      }
+
+      syncMapStyleButtons();
+    } catch (e) {
+      console.warn("Base layer switch failed:", e);
+    }
+  }
+
   function initMap() {
     map = L.map("map", {
       zoomControl: true,
@@ -563,21 +703,40 @@
       }
     }, 250);
 
-    const tiles = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+    streetLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
       minZoom: 2,
       maxZoom: 19,
       subdomains: "abcd",
       attribution: '&copy; OpenStreetMap contributors, &copy; CARTO'
     });
 
-    tiles.on("tileerror", () => {
+    satelliteLayer = L.esri && L.esri.basemapLayer
+      ? L.esri.basemapLayer("Imagery")
+      : L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+          minZoom: 2,
+          maxZoom: 19,
+          attribution: 'Tiles &copy; Esri'
+        });
+
+    streetLayer.on("tileerror", () => {
       tileErrorCount++;
       if (tileErrorCount > 4) {
         setStatus("Some map tiles were blocked while loading. Leave it a moment and they often recover.", true);
       }
     });
 
-    tiles.addTo(map);
+    if (satelliteLayer && satelliteLayer.on) {
+      satelliteLayer.on("tileerror", () => {
+        tileErrorCount++;
+        if (tileErrorCount > 4) {
+          setStatus("Some satellite tiles were blocked while loading. Leave it a moment and they often recover.", true);
+        }
+      });
+    }
+
+    satelliteLayer.addTo(map);
+    currentBaseLayer = 'satellite';
+    syncMapStyleButtons();
 
     markerLayer = L.layerGroup().addTo(map);
     routeLine = L.polyline([], { weight: 5, color: "#2563eb" }).addTo(map);
@@ -622,6 +781,15 @@
       bindPolygonLiveUpdates();
       updateFenceAnalysis();
       setStatus("Fence updated.");
+    });
+    map.on("mousemove touchmove", () => {
+      try {
+        if (activePolygon && activePolygon.editing && activePolygon.editing.enabled()) {
+          updateFenceAnalysis();
+        }
+      } catch (e) {
+        console.warn("Pointer move update failed:", e);
+      }
     });
 
     map.on(L.Draw.Event.DELETED, () => {
@@ -887,7 +1055,23 @@ if (!routePoints.length) {
   }
 
   function updateFenceAnalysis() {
-    renderAll();
+    const analyzed = analyzePoints();
+    renderMap(analyzed);
+    renderTable(analyzed);
+
+    if (!analyzed.length) return;
+
+    const anyOutside = analyzed.some(p => p.isInside === false);
+    const anyInside = analyzed.some(p => p.isInside === true);
+
+    if (anyOutside && lastAlertState !== "outside") {
+      speakAlert("The animal is outside the fence.");
+      setStatus("Alert: The animal is outside the fence.");
+      lastAlertState = "outside";
+    } else if (!anyOutside && anyInside) {
+      lastAlertState = "inside";
+      setStatus("All displayed points are inside the fence.");
+    }
   }
 
   function bindPolygonLiveUpdates() {
@@ -903,8 +1087,16 @@ if (!routePoints.length) {
       bindPolygonLiveUpdates();
       if (fenceLiveTimer) {
         clearInterval(fenceLiveTimer);
-        fenceLiveTimer = null;
       }
+      fenceLiveTimer = setInterval(() => {
+        try {
+          if (activePolygon && activePolygon.editing && activePolygon.editing.enabled()) {
+            updateFenceAnalysis();
+          }
+        } catch (e) {
+          console.warn("Live fence update failed:", e);
+        }
+      }, 250);
       updateFenceAnalysis();
     }
   }
@@ -961,6 +1153,7 @@ if (!routePoints.length) {
   }
 
   $("loginBtn").onclick = async () => {
+    unlockSpeech();
     try {
       setStatus("Logging in...");
       await login();
@@ -969,7 +1162,7 @@ if (!routePoints.length) {
       await fetchTimeseries();
       refreshMapLayout();
       fitMapToDataOnce(true);
-      setStatus("Data loaded.");
+      setStatus("Data loaded. Move the fence to test outside-point alerts.");
     } catch (e) {
       console.error(e);
       setStatus(e.message || String(e), true);
@@ -987,6 +1180,15 @@ if (!routePoints.length) {
   };
 
   $("openDateSheetBtn").onclick = openDateSheet;
+  $("testVoiceBtn").onclick = () => {
+    testVoiceNow();
+  };
+  $("streetViewBtn").onclick = () => {
+    setBaseLayer("street");
+  };
+  $("satelliteViewBtn").onclick = () => {
+    setBaseLayer("satellite");
+  };
   $("closeDateSheetBtn").onclick = closeDateSheet;
   $("applyDateSheetBtn").onclick = () => {
     const s = parseDateTimeInput($("startTime").value);
@@ -1008,6 +1210,22 @@ if (!routePoints.length) {
 
 
 
+  window.addEventListener("click", unlockSpeech, { once: true });
+  window.addEventListener("touchstart", unlockSpeech, { once: true });
+  window.addEventListener("pointerdown", unlockSpeech, { once: true });
+  window.addEventListener("keydown", unlockSpeech, { once: true });
+
+  if ("speechSynthesis" in window) {
+    try {
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = () => {
+        loadVoices();
+      };
+    } catch (e) {
+      console.warn("Voice init failed:", e);
+    }
+  }
+
   // Important: set default filter BEFORE anything else happens
   setLast24Hours();
   initMap();
@@ -1023,7 +1241,7 @@ if (!routePoints.length) {
       await fetchTimeseries();
       refreshMapLayout();
       fitMapToDataOnce(true);
-      setStatus("Data loaded.");
+      setStatus("Data loaded. Move the fence to test outside-point alerts.");
     } catch (e) {
       console.error(e);
       setStatus(e.message || String(e), true);

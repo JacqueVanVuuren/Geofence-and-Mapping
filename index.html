@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Fence</title>
+  <title>Geofence</title>
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
@@ -273,9 +273,15 @@
 <div class="app">
   <div id="statDeviceName" style="display:none;">Collar tag 6bab</div>
   <div class="card">
-    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-      <h1 class="heroTitle" style="margin:0;">Geofence</h1>
-      <div id="headerDeviceName" style="font-size:18px; font-weight:800;">Collar tag 6bab</div>
+    <div style="display:grid; gap:8px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <h1 class="heroTitle" style="margin:0;">Geofence</h1>
+        <div id="headerDeviceName" style="font-size:18px; font-weight:800;">Collar tag 6bab</div>
+      </div>
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; color:var(--muted); font-size:13px;">
+        <div id="batteryValue">Battery: --</div>
+        <div id="batteryTime">Last update: --</div>
+      </div>
     </div>
   </div>
 
@@ -317,7 +323,7 @@
           </div>
           <div>
             <label for="fencePointCount">Starter Points</label>
-            <input id="fencePointCount" type="number" min="4" max="20" value="4" />
+            <input id="fencePointCount" type="number" min="4" max="20" value="10" />
           </div>
         </div>
 
@@ -406,6 +412,7 @@
   let DEVICE_NAME = "Collar tag 6bab";
   const LAT_KEY = "latitude";
   const LON_KEY = "longitude";
+  const BATTERY_KEY = "battery_level";
 
   let jwtToken = "";
   let routePoints = [];
@@ -839,6 +846,52 @@ const res = await fetch(SERVER + "/api/auth/login", {
     if (headerName) headerName.textContent = DEVICE_NAME;
   }
 
+  function setBatteryDisplay(valueText, timeText = "Last update: --") {
+    const batteryValueEl = $("batteryValue");
+    const batteryTimeEl = $("batteryTime");
+    if (batteryValueEl) batteryValueEl.textContent = valueText;
+    if (batteryTimeEl) batteryTimeEl.textContent = timeText;
+  }
+
+  async function fetchBattery() {
+    try {
+      const target = await resolveTelemetryTarget();
+
+      const query = new URLSearchParams({
+        keys: BATTERY_KEY,
+        limit: "1",
+        agg: "NONE",
+        orderBy: "DESC",
+        useStrictDataTypes: "true"
+      });
+
+      const data = await api(
+        "/api/plugins/telemetry/" +
+        encodeURIComponent(target.entityType) + "/" +
+        encodeURIComponent(target.entityId) +
+        "/values/timeseries?" + query.toString()
+      );
+
+      const arr = data && Array.isArray(data[BATTERY_KEY]) ? data[BATTERY_KEY] : [];
+      if (arr.length) {
+        const latest = arr[0];
+        const rawValue = latest.value;
+        const valueText = rawValue === undefined || rawValue === null || rawValue === ""
+          ? "Battery: --"
+          : "Battery: " + rawValue;
+        const timeText = latest.ts
+          ? "Last update: " + new Date(Number(latest.ts)).toLocaleString()
+          : "Last update: --";
+        setBatteryDisplay(valueText, timeText);
+      } else {
+        setBatteryDisplay("Battery: No data", "Last update: --");
+      }
+    } catch (e) {
+      console.warn("Battery fetch failed:", e);
+      setBatteryDisplay("Battery: Error", "Last update: --");
+    }
+  }
+
   async function fetchTimeseries() {
     const startTs = parseDateTimeInput($("startTime").value);
     const endTs = parseDateTimeInput($("endTime").value);
@@ -1160,6 +1213,7 @@ if (!routePoints.length) {
       await fetchDeviceName();
       setStatus("Loading map data...");
       await fetchTimeseries();
+      await fetchBattery();
       refreshMapLayout();
       fitMapToDataOnce(true);
       setStatus("Data loaded. Move the fence to test outside-point alerts.");
@@ -1190,13 +1244,23 @@ if (!routePoints.length) {
     setBaseLayer("satellite");
   };
   $("closeDateSheetBtn").onclick = closeDateSheet;
-  $("applyDateSheetBtn").onclick = () => {
+  $("applyDateSheetBtn").onclick = async () => {
     const s = parseDateTimeInput($("startTime").value);
     const e = parseDateTimeInput($("endTime").value);
     currentFilter = (s && e && (e - s) <= 24*60*60*1000 + 60000) ? "24h" : "custom";
     syncFilterButtons();
     closeDateSheet();
-    setStatus("Filter updated.");
+    try {
+      setStatus("Loading map and battery data...");
+      await fetchTimeseries();
+      await fetchBattery();
+      refreshMapLayout();
+      fitMapToDataOnce(true);
+      setStatus("Filter updated.");
+    } catch (e) {
+      console.error(e);
+      setStatus(e.message || String(e), true);
+    }
   };
   $("dateSheet").onclick = (e) => {
     if (e.target.id === "dateSheet") closeDateSheet();
@@ -1239,6 +1303,7 @@ if (!routePoints.length) {
       await fetchDeviceName();
       setStatus("Loading map data...");
       await fetchTimeseries();
+      await fetchBattery();
       refreshMapLayout();
       fitMapToDataOnce(true);
       setStatus("Data loaded. Move the fence to test outside-point alerts.");

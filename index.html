@@ -66,7 +66,7 @@
       margin-bottom: 6px;
       padding-left: 2px;
     }
-    input, button {
+    input, select, button {
       width: 100%;
       border-radius: 14px;
       border: 1px solid var(--border);
@@ -76,7 +76,7 @@
       font-size: 15px;
       outline: none;
     }
-    input:focus {
+    input:focus, select:focus {
       border-color: rgba(59,130,246,.8);
       box-shadow: 0 0 0 3px rgba(59,130,246,.18);
     }
@@ -282,6 +282,10 @@
         <div id="batteryValue">Battery: --</div>
         <div id="batteryTime">Last update: --</div>
       </div>
+      <div>
+        <label for="deviceSelect">Select Tag / Device</label>
+        <select id="deviceSelect"></select>
+      </div>
     </div>
   </div>
 
@@ -413,8 +417,13 @@
   const SERVER = "https://thingsboard.intarget.mobi";
   const USERNAME = "dman@ioti.mobi";
   const AUTO_PASSWORD = "DMAN@IOTI";
-  const ENTITY_VIEW_ID = "87ba4c90-383d-11f1-9fcf-f388f094fc17";
-  let DEVICE_NAME = "Collar tag 6bab";
+  const DEVICE_OPTIONS = [
+    { name: "Collar tag 6bab", entityType: "ENTITY_VIEW", id: "87ba4c90-383d-11f1-9fcf-f388f094fc17" },
+    { name: "Tag 2662", entityType: "ENTITY_VIEW", id: "36892b90-4f60-11f1-a85a-7dc5226d848f" },
+    { name: "Tag 7771", entityType: "ENTITY_VIEW", id: "b461f790-4f60-11f1-a85a-7dc5226d848f" }
+  ];  let SELECTED_ENTITY = DEVICE_OPTIONS[0];
+  let ENTITY_VIEW_ID = SELECTED_ENTITY.id;
+  let DEVICE_NAME = SELECTED_ENTITY.name;
   const LAT_KEY = "latitude";
   const LON_KEY = "longitude";
   const BATTERY_KEY = "battery_level";
@@ -561,17 +570,20 @@
   }
 
   async function resolveTelemetryTarget() {
-    if (!isUuid(ENTITY_VIEW_ID)) throw new Error("Entity view ID is not a valid UUID.");
+    if (!SELECTED_ENTITY || !isUuid(SELECTED_ENTITY.id)) throw new Error("Selected entity view ID is not a valid UUID.");
 
     return {
-      entityType: "ENTITY_VIEW",
-      entityId: ENTITY_VIEW_ID
+      entityType: SELECTED_ENTITY.entityType || "ENTITY_VIEW",
+      entityId: SELECTED_ENTITY.id
     };
   }
 
   async function resolveEntityView() {
-    if (!isUuid(ENTITY_VIEW_ID)) throw new Error("Entity view ID is not a valid UUID.");
-    return api("/api/entityView/" + encodeURIComponent(ENTITY_VIEW_ID));
+    if (!SELECTED_ENTITY || SELECTED_ENTITY.entityType !== "ENTITY_VIEW") {
+      throw new Error("Selected target is not an entity view.");
+    }
+    if (!isUuid(SELECTED_ENTITY.id)) throw new Error("Entity view ID is not a valid UUID.");
+    return api("/api/entityView/" + encodeURIComponent(SELECTED_ENTITY.id));
   }
 
   function setLast24Hours() {
@@ -844,12 +856,55 @@ const res = await fetch(SERVER + "/api/auth/login", {
     return jwtToken;
   }
 
-  async function fetchDeviceName() {
-    DEVICE_NAME = "Collar tag 6bab";
+  function setDeviceDisplay() {
     const hiddenName = $("statDeviceName");
     const headerName = $("headerDeviceName");
     if (hiddenName) hiddenName.textContent = DEVICE_NAME;
     if (headerName) headerName.textContent = DEVICE_NAME;
+  }
+
+  function initDeviceSelect() {
+    const select = $("deviceSelect");
+    if (!select) return;
+
+    select.innerHTML = "";
+    DEVICE_OPTIONS.forEach((device, index) => {
+      const option = document.createElement("option");
+      option.value = String(index);
+      option.textContent = device.name;
+      if (index === 0) option.selected = true;
+      select.appendChild(option);
+    });
+
+    select.onchange = async () => {
+      const selected = DEVICE_OPTIONS[Number(select.value)];
+      if (!selected) return;
+
+      SELECTED_ENTITY = selected;
+      ENTITY_VIEW_ID = selected.id;
+      DEVICE_NAME = selected.name;
+      setDeviceDisplay();
+      clearAll();
+      setStatus("Loading " + DEVICE_NAME + "...");
+
+      try {
+        if (!jwtToken) await login();
+        await fetchTimeseries();
+        await fetchBattery();
+        refreshMapLayout();
+        fitMapToDataOnce(true);
+        setStatus("Loaded " + DEVICE_NAME + ".");
+      } catch (e) {
+        console.error(e);
+        setStatus(e.message || String(e), true);
+      }
+    };
+
+    setDeviceDisplay();
+  }
+
+  async function fetchDeviceName() {
+    setDeviceDisplay();
   }
 
   function setBatteryDisplay(valueText, timeText = "Last update: --") {
@@ -920,6 +975,10 @@ const res = await fetch(SERVER + "/api/auth/login", {
     try {
       data = await api("/api/plugins/telemetry/" + encodeURIComponent(target.entityType) + "/" + encodeURIComponent(target.entityId) + "/values/timeseries?" + query.toString());
     } catch (firstErr) {
+      if (target.entityType !== "ENTITY_VIEW") {
+        throw new Error("Telemetry fetch failed for selected entity. Check that this user can view latitude and longitude telemetry on this entity.");
+      }
+
       try {
         const entityView = await resolveEntityView();
         const fallbackType = entityView && entityView.entityId && entityView.entityId.entityType;
@@ -1380,6 +1439,7 @@ if (!routePoints.length) {
   }
 
   // Important: set default filter BEFORE anything else happens
+  initDeviceSelect();
   setLast24Hours();
   initMap();
   setTimeout(refreshMapLayout, 250);

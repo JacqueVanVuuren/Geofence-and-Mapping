@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Fence</title>
 
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0b1220">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Fence">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
 
@@ -260,6 +269,30 @@
     #map, .leaflet-container, .leaflet-pane, .leaflet-control-container {
       pointer-events: auto;
     }
+
+    .installCard {
+      display: none;
+      gap: 8px;
+    }
+    .installCard.show {
+      display: grid;
+    }
+    .smallText {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .installActions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+    .installActions button {
+      width: auto;
+      min-width: 120px;
+      padding: 11px 13px;
+    }
   </style>
 
 <style>
@@ -271,6 +304,15 @@
 </head>
 <body>
 <div class="app">
+
+  <div id="installCard" class="card installCard">
+    <div style="font-weight:800;">Install Fence on this phone</div>
+    <div class="smallText" id="installText">Tap Install App. If that button does not open the installer, tap the Chrome menu and choose Add to Home screen or Install app.</div>
+    <div class="installActions">
+      <button id="installAppBtn" class="secondary" type="button">Install App</button>
+      <button id="hideInstallBtn" class="ghost" type="button">Hide</button>
+    </div>
+  </div>
   <div id="statDeviceName" style="display:none;">Collar tag 6bab</div>
   <div class="card">
     <div style="display:grid; gap:8px;">
@@ -1465,6 +1507,75 @@ if (!routePoints.length) {
   const headerNameEl = $("headerDeviceName");
   if (statNameEl) statNameEl.textContent = DEVICE_NAME;
   if (headerNameEl) headerNameEl.textContent = DEVICE_NAME;
+
+
+  // PWA install support for Android Chrome
+  let deferredInstallPrompt = null;
+
+  function isStandaloneApp() {
+    return window.matchMedia && window.matchMedia("(display-mode: standalone)").matches;
+  }
+
+  function updateInstallCard() {
+    const card = $("installCard");
+    if (!card) return;
+    const hidden = localStorage.getItem("fence_install_card_hidden") === "1";
+    if (isStandaloneApp() || hidden) {
+      card.classList.remove("show");
+    } else {
+      card.classList.add("show");
+    }
+  }
+
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    updateInstallCard();
+  });
+
+  window.addEventListener("appinstalled", () => {
+    deferredInstallPrompt = null;
+    localStorage.setItem("fence_install_card_hidden", "1");
+    updateInstallCard();
+    setStatus("Fence app installed.");
+  });
+
+  const installBtn = $("installAppBtn");
+  if (installBtn) {
+    installBtn.onclick = async () => {
+      try {
+        if (deferredInstallPrompt) {
+          deferredInstallPrompt.prompt();
+          await deferredInstallPrompt.userChoice;
+          deferredInstallPrompt = null;
+          updateInstallCard();
+        } else {
+          setStatus("Open Chrome menu, then tap Add to Home screen or Install app.");
+        }
+      } catch (e) {
+        console.warn("Install prompt failed:", e);
+        setStatus("Open Chrome menu, then tap Add to Home screen or Install app.");
+      }
+    };
+  }
+
+  const hideInstallBtn = $("hideInstallBtn");
+  if (hideInstallBtn) {
+    hideInstallBtn.onclick = () => {
+      localStorage.setItem("fence_install_card_hidden", "1");
+      updateInstallCard();
+    };
+  }
+
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("./sw.js").catch((err) => {
+        console.warn("Service worker registration failed:", err);
+      });
+    });
+  }
+
+  updateInstallCard();
 </script>
 </body>
 </html>
